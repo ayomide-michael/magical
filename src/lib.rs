@@ -1,7 +1,14 @@
-#[derive(Debug)]
-pub enum Error {}
+#[derive(Debug, PartialEq)]
+pub enum Expected {
+    AnyToken,
+}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    UnexpectedEndOfInput { expected: Expected },
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Location {
     pub line: usize,
     pub column: usize,
@@ -18,7 +25,7 @@ impl Default for Location {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Node<'node, T>
 where
     T: ParserType,
@@ -61,6 +68,37 @@ impl<'context> Context<'context> {
             input,
             location: Location::default(),
         }
+    }
+
+    pub fn advance(&mut self, characters: &str) {
+        self.location.offset.0 = self.location.offset.1;
+
+        for character in characters.chars() {
+            if character == '\n' {
+                self.location.line += 1;
+                self.location.column = 1; // Reset column to 1 after a newline
+            } else {
+                self.location.column += 1;
+            }
+            self.location.offset.1 += character.len_utf8();
+        }
+    }
+
+    pub fn advance_by(&mut self, length: usize) {
+        if length == 0 {
+            return;
+        }
+
+        if let Some(characters) = self
+            .input
+            .get(self.location.offset.1..self.location.offset.1 + length)
+        {
+            self.advance(characters);
+        }
+    }
+
+    pub fn get_next_character(&self) -> Option<char> {
+        self.input.chars().next()
     }
 }
 
@@ -111,4 +149,17 @@ where
 
         self.parse_fn.call(&mut context)
     }
+}
+
+pub fn any_token<'any_token>() -> Parser<'any_token, impl ParseFN<'any_token, char>, char> {
+    Parser::new(|ctx: &mut Context<'any_token>| match ctx.get_next_character() {
+        Some(token) => {
+            ctx.advance_by(token.len_utf8());
+
+            Ok(Node::new("anyToken", token, ctx.location.clone(), vec![]))
+        }
+        None => Err(Error::UnexpectedEndOfInput {
+            expected: Expected::AnyToken,
+        }),
+    })
 }
