@@ -1,13 +1,23 @@
 #[derive(Debug, PartialEq)]
-pub enum Expected {
+pub enum Expected<'expected> {
     AnyToken,
     Character(char),
+    Literal(&'expected str),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Error {
-    UnexpectedEndOfInput { expected: Expected },
-    MisMatchedCharacter { expected: Expected, found: char },
+pub enum Error<'error> {
+    UnexpectedEndOfInput {
+        expected: Expected<'error>,
+    },
+    MisMatchedCharacter {
+        expected: Expected<'error>,
+        found: char,
+    },
+    InvalidLiteral {
+        expected: Expected<'error>,
+        found: &'error str,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -57,7 +67,7 @@ where
     }
 }
 
-pub type ParseResult<'parse_result, T> = Result<Node<'parse_result, T>, Error>;
+pub type ParseResult<'parse_result, T> = Result<Node<'parse_result, T>, Error<'parse_result>>;
 
 pub struct Context<'context> {
     input: &'context str,
@@ -101,6 +111,13 @@ impl<'context> Context<'context> {
 
     pub fn get_next_character(&self) -> Option<char> {
         self.input.chars().next()
+    }
+
+    pub fn get_remaining_input(&self) -> Option<&'context str> {
+        if self.input.len() > 0 {
+            return self.input.get(self.location.offset.1..);
+        }
+        None
     }
 }
 
@@ -185,6 +202,35 @@ pub fn token<'token>(expected_token: char) -> Parser<'token, impl ParseFN<'token
             }
             None => Err(Error::UnexpectedEndOfInput {
                 expected: Expected::Character(expected_token),
+            }),
+        },
+    )
+}
+
+pub fn literal<'literal>(
+    pattern: &'literal str,
+) -> Parser<'literal, impl ParseFN<'literal, &'literal str>, &'literal str> {
+    Parser::new(
+        move |ctx: &mut Context<'literal>| match ctx.get_remaining_input() {
+            Some(remaining_input) => {
+                if remaining_input.starts_with(pattern) {
+                    ctx.advance_by(pattern.len());
+
+                    Ok(Node::new("literal", pattern, ctx.location.clone(), vec![]))
+                } else {
+                    let found = remaining_input
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or(remaining_input);
+
+                    Err(Error::InvalidLiteral {
+                        expected: Expected::Literal(pattern),
+                        found,
+                    })
+                }
+            }
+            None => Err(Error::UnexpectedEndOfInput {
+                expected: Expected::Literal(pattern),
             }),
         },
     )
