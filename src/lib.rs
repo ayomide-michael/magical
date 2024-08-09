@@ -1,11 +1,13 @@
 #[derive(Debug, PartialEq)]
 pub enum Expected {
     AnyToken,
+    Character(char),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     UnexpectedEndOfInput { expected: Expected },
+    MisMatchedCharacter { expected: Expected, found: char },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -152,14 +154,38 @@ where
 }
 
 pub fn any_token<'any_token>() -> Parser<'any_token, impl ParseFN<'any_token, char>, char> {
-    Parser::new(|ctx: &mut Context<'any_token>| match ctx.get_next_character() {
-        Some(token) => {
-            ctx.advance_by(token.len_utf8());
+    Parser::new(
+        |ctx: &mut Context<'any_token>| match ctx.get_next_character() {
+            Some(token) => {
+                ctx.advance_by(token.len_utf8());
 
-            Ok(Node::new("anyToken", token, ctx.location.clone(), vec![]))
-        }
-        None => Err(Error::UnexpectedEndOfInput {
-            expected: Expected::AnyToken,
-        }),
-    })
+                Ok(Node::new("anyToken", token, ctx.location.clone(), vec![]))
+            }
+            None => Err(Error::UnexpectedEndOfInput {
+                expected: Expected::AnyToken,
+            }),
+        },
+    )
+}
+
+pub fn token<'token>(expected_token: char) -> Parser<'token, impl ParseFN<'token, char>, char> {
+    Parser::new(
+        move |ctx: &mut Context<'token>| match ctx.get_next_character() {
+            Some(token) => {
+                if token == expected_token {
+                    ctx.advance_by(token.len_utf8());
+
+                    Ok(Node::new("token", token, ctx.location.clone(), vec![]))
+                } else {
+                    Err(Error::MisMatchedCharacter {
+                        expected: Expected::Character(expected_token),
+                        found: token,
+                    })
+                }
+            }
+            None => Err(Error::UnexpectedEndOfInput {
+                expected: Expected::Character(expected_token),
+            }),
+        },
+    )
 }
